@@ -137,11 +137,13 @@ const actions = {
       const response = await apiService.getOrders()
       if (response.success) {
         commit('SET_ORDERS', response.data)
+        return { success: true, data: response.data }
       }
       return response
     } catch (error) {
       console.error('Error fetching orders:', error)
-      throw error
+      // If API fails, keep using local data
+      return { success: false, message: 'Using local order data', useLocal: true }
     }
   },
 
@@ -252,7 +254,16 @@ const getters = {
     .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate))
     .slice(0, 5),
   orderStatistics: state => {
-    const stats = {
+    const stats = {}
+    
+    state.orders.forEach(order => {
+      stats[order.status] = (stats[order.status] || 0) + 1
+    })
+    
+    return stats
+  },
+  orderSummary: state => {
+    const summary = {
       total: state.orders.length,
       byStatus: {},
       totalValue: 0,
@@ -261,15 +272,15 @@ const getters = {
     
     state.orders.forEach(order => {
       // Count by status
-      stats.byStatus[order.status] = (stats.byStatus[order.status] || 0) + 1
+      summary.byStatus[order.status] = (summary.byStatus[order.status] || 0) + 1
       // Add to total value
-      stats.totalValue += order.total
+      summary.totalValue += order.total
     })
     
     // Calculate average order value
-    stats.averageOrderValue = stats.total > 0 ? stats.totalValue / stats.total : 0
+    summary.averageOrderValue = summary.total > 0 ? summary.totalValue / summary.total : 0
     
-    return stats
+    return summary
   }
 }
 

@@ -59,7 +59,8 @@ const actions = {
         commit('ADD_MESSAGE', {
           content: response.message,
           type: 'agent',
-          sender: 'agent'
+          sender: 'agent',
+          context: response.context
         })
         
         // Update session ID if provided
@@ -67,18 +68,18 @@ const actions = {
           commit('SET_CURRENT_SESSION', response.sessionId)
         }
         
-        // If this was a successful order action, update the orders store
-        if (response.action && response.success && response.orderId) {
-          const orderAction = response.action === 'cancel' ? 'cancelOrder' : 
-                            response.action === 'return' ? 'returnOrder' : null;
-          
-          if (orderAction) {
-            await dispatch(`orders/${orderAction}`, {
+        // Handle order actions from AI response
+        if (response.success && response.actions && response.actions.length > 0) {
+          for (const action of response.actions) {
+            await dispatch('processOrderAction', {
+              action,
               orderId: response.orderId,
-              reason: 'Customer request via chat'
-            }, { root: true });
+              intent: response.intent,
+              aiResponse: response
+            })
           }
         }
+        
       } catch (error) {
         console.error('Error sending message:', error)
         commit('ADD_MESSAGE', {
@@ -89,6 +90,67 @@ const actions = {
       } finally {
         commit('SET_TYPING', false)
       }
+    }
+  },
+
+  async processOrderAction({ dispatch }, { action, orderId, intent, aiResponse }) {
+    try {
+      let result = null
+      let notificationMessage = ''
+      
+      // Process different order actions
+      if (action === 'CANCEL_ORDER' && orderId) {
+        result = await dispatch('orders/cancelOrder', {
+          orderId: orderId,
+          reason: 'Customer request via AI chat'
+        }, { root: true })
+        
+        if (result.success) {
+          notificationMessage = `✅ Order ${orderId} has been cancelled successfully!`
+          
+          // Also refresh orders from server to get the actual updated data
+          try {
+            await dispatch('orders/fetchOrders', null, { root: true })
+          } catch (error) {
+            console.log('Note: Using local order update (server sync not available)')
+          }
+        }
+      } else if (action === 'RETURN_ORDER' && orderId) {
+        result = await dispatch('orders/returnOrder', {
+          orderId: orderId,
+          reason: 'Customer request via AI chat'
+        }, { root: true })
+        
+        if (result.success) {
+          notificationMessage = `✅ Return request for order ${orderId} has been submitted!`
+          
+          // Refresh orders from server
+          try {
+            await dispatch('orders/fetchOrders', null, { root: true })
+          } catch (error) {
+            console.log('Note: Using local order update (server sync not available)')
+          }
+        }
+      } else if (action === 'TRACK_ORDER' && orderId) {
+        // For tracking, just show a notification that tracking info was provided
+        notificationMessage = `📦 Tracking information provided for order ${orderId}`
+      }
+      
+      // Show notification
+      if (notificationMessage) {
+        dispatch('ui/showNotification', {
+          type: result?.success ? 'success' : 'info',
+          message: notificationMessage,
+          duration: 6000 // Show longer for important actions
+        }, { root: true })
+      }
+      
+    } catch (error) {
+      console.error('Error processing order action:', error)
+      dispatch('ui/showNotification', {
+        type: 'error',
+        message: 'There was an issue processing your request. Please try again.'
+      }, { root: true })
     }
   },
 

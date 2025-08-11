@@ -27,7 +27,8 @@ export default {
         delivered: 'Delivered',
         cancelled: 'Cancelled',
         processing: 'Processing',
-        refunded: 'Refunded'
+        refunded: 'Refunded',
+        return_requested: 'Return Requested'
       },
       statusClasses: {
         confirmed: 'bg-yellow-100 text-yellow-800',
@@ -36,6 +37,7 @@ export default {
         cancelled: 'bg-red-100 text-red-800',
         processing: 'bg-purple-100 text-purple-800',
         refunded: 'bg-gray-100 text-gray-800',
+        return_requested: 'bg-orange-100 text-orange-800',
         default: 'bg-gray-100 text-gray-800'
       },
       dotClasses: {
@@ -45,6 +47,7 @@ export default {
         cancelled: 'bg-red-400',
         processing: 'bg-purple-400',
         refunded: 'bg-gray-400',
+        return_requested: 'bg-orange-400',
         default: 'bg-gray-400'
       }
     }

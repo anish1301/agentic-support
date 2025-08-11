@@ -59,7 +59,11 @@ const mutations = {
 
 const actions = {
   showNotification({ commit }, { message, type = 'info', duration = 5000 }) {
-    const notification = { message, type }
+    const notification = { 
+      id: Date.now() + Math.random(), // Ensure unique ID
+      message, 
+      type 
+    }
     commit('ADD_NOTIFICATION', notification)
 
     // Auto remove notification after duration
