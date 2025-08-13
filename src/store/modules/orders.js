@@ -6,13 +6,13 @@ const state = {
     {
       id: 'ORD-12345',
       customerId: 'CUST-001',
-      customerName: 'John Doe',
-      customerEmail: 'john.doe@email.com',
+      customerName: 'Sarah Johnson',
+      customerEmail: 'sarah.johnson@email.com',
       status: 'confirmed',
       items: [
         { 
-          id: 'ITEM-001',
-          name: 'iPhone 14 Pro Max', 
+          id: 'PROD-001',
+          name: 'iPhone 15 Pro', 
           variant: '256GB Deep Purple',
           qty: 1, 
           price: 1099,
@@ -20,22 +20,46 @@ const state = {
         }
       ],
       total: 1099,
-      orderDate: '2025-07-25T10:30:00Z',
+      orderDate: '2025-07-28T10:30:00Z',
       canCancel: true,
       canReturn: false,
       trackingNumber: '1Z999AA1234567890',
       carrier: 'UPS',
-      estimatedDelivery: '2025-07-30T18:00:00Z'
+      estimatedDelivery: '2025-08-02T18:00:00Z'
     },
     {
       id: 'ORD-12346',
       customerId: 'CUST-001',
-      customerName: 'John Doe',
-      customerEmail: 'john.doe@email.com',
+      customerName: 'Sarah Johnson',
+      customerEmail: 'sarah.johnson@email.com',
       status: 'shipped',
       items: [
         { 
-          id: 'ITEM-002',
+          id: 'PROD-002',
+          name: 'MacBook Pro 14',
+          variant: 'M3 Pro, 512GB, Silver',
+          qty: 1, 
+          price: 1999,
+          image: 'https://via.placeholder.com/100x100?text=MacBook'
+        }
+      ],
+      total: 1999,
+      orderDate: '2025-07-25T14:15:00Z',
+      canCancel: false,
+      canReturn: true,
+      trackingNumber: '1Z999BB9876543210',
+      carrier: 'FedEx',
+      estimatedDelivery: '2025-08-01T16:00:00Z'
+    },
+    {
+      id: 'ORD-12347',
+      customerId: 'CUST-002',
+      customerName: 'Mike Chen',
+      customerEmail: 'mike.chen@email.com',
+      status: 'delivered',
+      items: [
+        { 
+          id: 'PROD-003',
           name: 'AirPods Pro 2nd Gen', 
           variant: 'with MagSafe Case',
           qty: 2, 
@@ -44,36 +68,12 @@ const state = {
         }
       ],
       total: 498,
-      orderDate: '2025-07-22T14:15:00Z',
-      canCancel: false,
-      canReturn: false,
-      trackingNumber: '1Z999BB9876543210',
-      carrier: 'FedEx',
-      estimatedDelivery: '2025-07-29T16:00:00Z'
-    },
-    {
-      id: 'ORD-12347',
-      customerId: 'CUST-002',
-      customerName: 'Jane Smith',
-      customerEmail: 'jane.smith@email.com',
-      status: 'delivered',
-      items: [
-        { 
-          id: 'ITEM-003',
-          name: 'MacBook Air M2', 
-          variant: '13-inch, 8GB RAM, 256GB SSD, Midnight',
-          qty: 1, 
-          price: 1199,
-          image: 'https://via.placeholder.com/100x100?text=MacBook'
-        }
-      ],
-      total: 1199,
       orderDate: '2025-07-20T09:45:00Z',
       canCancel: false,
       canReturn: true,
       trackingNumber: '1Z999CC1122334455',
       carrier: 'UPS',
-      deliveredDate: '2025-07-25T14:30:00Z'
+      estimatedDelivery: null
     }
   ],
   selectedOrder: null,
@@ -109,6 +109,11 @@ const mutations = {
         ...additionalData
       })
     }
+  },
+
+  // Enhanced mutation for state restoration (used by undo/redo)
+  RESTORE_STATE(state, restoredState) {
+    Object.assign(state, restoredState)
   },
 
   SET_SELECTED_ORDER(state, order) {
@@ -149,19 +154,26 @@ const actions = {
 
   async fetchOrder({ commit }, orderId) {
     try {
-      const response = await apiService.getOrder(orderId)
-      if (response.success) {
-        commit('UPDATE_ORDER', response.data)
+      const response = await fetch(`http://localhost:3002/api/orders/${orderId}`)
+      const result = await response.json()
+      
+      if (result.success) {
+        commit('UPDATE_ORDER', result.data)
+        return { success: true, data: result.data }
       }
-      return response
+      return result
     } catch (error) {
       console.error('Error fetching order:', error)
-      throw error
+      return { success: false, message: 'Failed to fetch order data', error: error.message }
     }
   },
 
-  async cancelOrder({ commit, state }, { orderId, reason = 'Customer request' }) {
+  async cancelOrder({ commit, state, dispatch }, { orderId, reason = 'Customer request' }) {
     try {
+      // Start optimistic update
+      const updateId = `cancel_${orderId}_${Date.now()}`
+      const optimistic = dispatch('startOptimisticUpdate', updateId, { root: true })
+      
       // Find the order in local state
       const order = state.orders.find(o => o.id === orderId)
       
@@ -170,17 +182,19 @@ const actions = {
       }
 
       if (order.status === 'cancelled') {
+        dispatch('confirmOptimisticUpdate', updateId, { root: true })
         return { success: false, message: 'Order is already cancelled' }
       }
 
       if (order.status === 'delivered') {
+        dispatch('confirmOptimisticUpdate', updateId, { root: true })
         return { 
           success: false, 
           message: 'This order has already been delivered and cannot be cancelled.' 
         }
       }
 
-      // Update local state immediately for better UX
+      // Update local state immediately for better UX (optimistic update)
       commit('UPDATE_ORDER_STATUS', {
         orderId,
         status: 'cancelled',
@@ -191,20 +205,38 @@ const actions = {
           canReturn: false
         }
       })
-      
-      return { 
-        success: true, 
-        message: `Order ${orderId} cancelled successfully`,
-        order: order
+
+      // Try to sync with server (simulate API call)
+      try {
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        
+        // Confirm optimistic update succeeded
+        dispatch('confirmOptimisticUpdate', updateId, { root: true })
+        
+        return { 
+          success: true, 
+          message: `Order ${orderId} cancelled successfully`,
+          order: order
+        }
+      } catch (serverError) {
+        // Rollback optimistic update on server error
+        dispatch('rollbackOptimisticUpdate', updateId, { root: true })
+        throw serverError
       }
+      
     } catch (error) {
       console.error('Error cancelling order:', error)
       return { success: false, message: 'Failed to cancel order due to a network error' }
     }
   },
 
-  async returnOrder({ commit, state }, { orderId, reason = 'Customer request' }) {
+  async returnOrder({ commit, state, dispatch }, { orderId, reason = 'Customer request' }) {
     try {
+      // Start optimistic update
+      const updateId = `return_${orderId}_${Date.now()}`
+      const optimistic = dispatch('startOptimisticUpdate', updateId, { root: true })
+      
       // Find the order in local state  
       const order = state.orders.find(o => o.id === orderId)
       
@@ -213,13 +245,14 @@ const actions = {
       }
 
       if (order.status !== 'delivered') {
+        dispatch('confirmOptimisticUpdate', updateId, { root: true })
         return { 
           success: false, 
           message: 'Only delivered orders can be returned' 
         }
       }
 
-      // Update local state immediately for better UX
+      // Update local state immediately for better UX (optimistic update)
       commit('UPDATE_ORDER_STATUS', {
         orderId,
         status: 'return_requested',
@@ -229,12 +262,26 @@ const actions = {
           canReturn: false
         }
       })
-      
-      return { 
-        success: true, 
-        message: `Return request for order ${orderId} submitted successfully`,
-        order: order
+
+      // Try to sync with server (simulate API call)
+      try {
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        
+        // Confirm optimistic update succeeded
+        dispatch('confirmOptimisticUpdate', updateId, { root: true })
+        
+        return { 
+          success: true, 
+          message: `Return request for order ${orderId} submitted successfully`,
+          order: order
+        }
+      } catch (serverError) {
+        // Rollback optimistic update on server error
+        dispatch('rollbackOptimisticUpdate', updateId, { root: true })
+        throw serverError
       }
+      
     } catch (error) {
       console.error('Error processing return:', error)
       return { success: false, message: 'Failed to process return due to a network error' }

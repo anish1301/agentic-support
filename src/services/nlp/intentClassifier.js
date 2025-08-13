@@ -107,19 +107,46 @@ class IntentClassifier {
   /**
    * Analyze message and detect multiple intents with confidence scores
    * @param {string} message - User message to analyze
-   * @param {object} context - Conversation context
+   * @param {object} context - Conversation context with user-specific data
    * @returns {object} Analysis result with multiple intents
    */
   async analyzeMessage(message, context = {}) {
     const analysis = {
       intents: [],
-      entities: this.extractEntities(message),
+      entities: this.extractEntities(message, context),
       sentiment: this.analyzeSentiment(message),
       urgency: this.determineUrgency(message),
       temporal: this.extractTemporal(message),
       confidence: 0,
       isComplex: false,
-      needsClarification: false
+      needsClarification: false,
+      userContext: context.user || null,
+      pendingIntent: context.pendingIntent || null
+    }
+
+    // Handle pending intent context (follow-up conversations)
+    if (context.pendingIntent && context.pendingIntent.intent) {
+      console.log('[IntentClassifier] Processing follow-up for pending intent:', context.pendingIntent.intent)
+      
+      // If user just provided a product name after we asked for clarification
+      if (analysis.entities.products.length > 0 || analysis.entities.matchedOrders.length > 0) {
+        analysis.primaryIntent = context.pendingIntent.intent
+        analysis.confidence = 0.9 // High confidence for follow-up
+        analysis.isFollowUp = true
+        analysis.followUpFor = context.pendingIntent.intent
+        
+        return analysis
+      }
+      
+      // If user provided an order ID after we asked for clarification
+      if (analysis.entities.orderIds.length > 0) {
+        analysis.primaryIntent = context.pendingIntent.intent
+        analysis.confidence = 0.95 // Very high confidence
+        analysis.isFollowUp = true
+        analysis.followUpFor = context.pendingIntent.intent
+        
+        return analysis
+      }
     }
 
     // Detect all potential intents
@@ -134,18 +161,26 @@ class IntentClassifier {
     analysis.intents = sortedIntents
     analysis.confidence = sortedIntents[0]?.confidence || 0
     analysis.isComplex = sortedIntents.length > 1
-    analysis.needsClarification = analysis.confidence < 0.6 && !analysis.entities.orderIds.length
+
+    // Enhanced clarification logic for single-user context
+    const hasOrderReference = analysis.entities.orderIds.length > 0 || 
+                             analysis.entities.products.length > 0 ||
+                             analysis.entities.matchedOrders.length > 0
+    
+    analysis.needsClarification = analysis.confidence < 0.6 && !hasOrderReference
+    analysis.shouldUseGemini = analysis.confidence < 0.4 // Use Gemini for very low confidence
 
     // Handle multi-intent scenarios
     if (analysis.isComplex) {
       analysis.primaryIntent = sortedIntents[0].intent
       analysis.secondaryIntents = sortedIntents.slice(1)
-      analysis.executionPlan = this.createExecutionPlan(analysis.intents, analysis.entities)
+      analysis.executionPlan = this.createExecutionPlan(analysis.intents, analysis.entities, context)
     } else if (sortedIntents.length > 0) {
       analysis.primaryIntent = sortedIntents[0].intent
     } else {
       analysis.primaryIntent = 'GENERAL_INQUIRY'
       analysis.confidence = 0.3
+      analysis.shouldUseGemini = true // Use Gemini when we can't understand
     }
 
     return analysis
@@ -194,19 +229,22 @@ class IntentClassifier {
   }
 
   /**
-   * Extract entities from the message
+   * Extract entities from the message with user context
+   * @param {string} message - User message
+   * @param {object} context - User context with order mappings
    */
-  extractEntities(message) {
+  extractEntities(message, context = {}) {
     const entities = {
       orderIds: [],
       products: [],
       amounts: [],
       dates: [],
       emails: [],
-      phoneNumbers: []
+      phoneNumbers: [],
+      matchedOrders: [] // Orders found by product name matching
     }
 
-    // Extract order IDs
+    // Extract order IDs using existing patterns
     const orderPatterns = [
       /(?:order\s+(?:number\s+|#)?)?(?:ORD-)?(\w{3,8}(?:-\w{3,8})?)/gi,
       /#(\w+)/g,
@@ -226,21 +264,74 @@ class IntentClassifier {
       }
     })
 
-    // Extract monetary amounts
+    // Enhanced product name extraction with user context
+    if (context.productMappings || context.userOrders) {
+      const lowerMessage = message.toLowerCase()
+      
+      // Check against user's product mappings
+      if (context.productMappings) {
+        for (const [productName, orderId] of Object.entries(context.productMappings)) {
+          if (lowerMessage.includes(productName.toLowerCase())) {
+            if (!entities.products.includes(productName)) {
+              entities.products.push(productName)
+            }
+            if (!entities.orderIds.includes(orderId)) {
+              entities.orderIds.push(orderId)
+            }
+          }
+        }
+      }
+
+      // Check against active user orders for product name matching
+      if (context.userOrders?.active) {
+        for (const order of context.userOrders.active) {
+          for (const item of order.items) {
+            const itemName = item.name.toLowerCase()
+            const itemVariant = item.variant?.toLowerCase() || ''
+            
+            // Check if message contains product name or major keywords
+            const productKeywords = itemName.split(' ').filter(word => word.length > 2)
+            const matchedKeywords = productKeywords.filter(keyword => 
+              lowerMessage.includes(keyword)
+            )
+            
+            // If we match enough keywords or exact name, consider it a match
+            if (lowerMessage.includes(itemName) || 
+                matchedKeywords.length >= Math.min(2, productKeywords.length)) {
+              
+              if (!entities.products.includes(item.name)) {
+                entities.products.push(item.name)
+              }
+              if (!entities.orderIds.includes(order.id)) {
+                entities.orderIds.push(order.id)
+              }
+              
+              // Add the full order to matched orders for better context
+              entities.matchedOrders.push({
+                orderId: order.id,
+                matchedProduct: item.name,
+                matchType: lowerMessage.includes(itemName) ? 'exact' : 'partial',
+                confidence: matchedKeywords.length / productKeywords.length
+              })
+            }
+          }
+        }
+      }
+    }
+
+    // Rest of the existing entity extraction logic
     const amountPattern = /\$(\d+(?:,\d{3})*(?:\.\d{2})?)/g
     let amountMatch
     while ((amountMatch = amountPattern.exec(message)) !== null) {
       entities.amounts.push(parseFloat(amountMatch[1].replace(',', '')))
     }
 
-    // Extract emails
     const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
     let emailMatch
     while ((emailMatch = emailPattern.exec(message)) !== null) {
       entities.emails.push(emailMatch[0])
     }
 
-    // Extract phone numbers
     const phonePattern = /(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g
     let phoneMatch
     while ((phoneMatch = phonePattern.exec(message)) !== null) {
@@ -349,8 +440,11 @@ class IntentClassifier {
 
   /**
    * Create execution plan for multi-intent scenarios
+   * @param {array} intents - Detected intents
+   * @param {object} entities - Extracted entities
+   * @param {object} context - User context
    */
-  createExecutionPlan(intents, entities) {
+  createExecutionPlan(intents, entities, context = {}) {
     const plan = {
       steps: [],
       requiresClarification: false,
@@ -377,13 +471,32 @@ class IntentClassifier {
         intent: intentObj.intent,
         confidence: intentObj.confidence,
         requiresOrderId: ['CANCEL_ORDER', 'TRACK_ORDER', 'RETURN_ORDER', 'MODIFY_ORDER'].includes(intentObj.intent),
-        hasOrderId: entities.orderIds.length > 0,
-        canExecute: true
+        hasOrderId: entities.orderIds.length > 0 || entities.matchedOrders.length > 0,
+        canExecute: true,
+        matchedProducts: entities.products,
+        availableOrders: context.userOrders?.active || []
       }
 
+      // Enhanced order requirement checking
       if (step.requiresOrderId && !step.hasOrderId) {
-        step.canExecute = false
-        plan.requiresClarification = true
+        // Check if we can infer from user's active orders for this intent type
+        const actionableOrders = this.getActionableOrdersForIntent(intentObj.intent, context)
+        
+        if (actionableOrders.length === 1) {
+          // If only one actionable order, we can auto-select it
+          step.hasOrderId = true
+          step.canExecute = true
+          step.inferredOrderId = actionableOrders[0].id
+        } else if (actionableOrders.length > 1) {
+          // Multiple options, need clarification
+          step.canExecute = false
+          step.availableOptions = actionableOrders
+          plan.requiresClarification = true
+        } else {
+          // No actionable orders
+          step.canExecute = false
+          plan.requiresClarification = true
+        }
       }
 
       plan.steps.push(step)
@@ -391,6 +504,32 @@ class IntentClassifier {
     }
 
     return plan
+  }
+
+  /**
+   * Get actionable orders for a specific intent type
+   * @param {string} intentType - The intent type
+   * @param {object} context - User context
+   * @returns {array} Actionable orders
+   */
+  getActionableOrdersForIntent(intentType, context) {
+    if (!context.userOrders?.active) return []
+
+    switch (intentType) {
+      case 'CANCEL_ORDER':
+        return context.userOrders.active.filter(order => order.canCancel)
+      
+      case 'TRACK_ORDER':
+        return context.userOrders.active.filter(order => 
+          ['confirmed', 'processing', 'shipped', 'in_transit'].includes(order.status)
+        )
+      
+      case 'RETURN_ORDER':
+        return context.userOrders.active.filter(order => order.canReturn)
+      
+      default:
+        return context.userOrders.active
+    }
   }
 
   /**

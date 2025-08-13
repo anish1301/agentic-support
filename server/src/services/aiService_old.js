@@ -5,7 +5,7 @@ const { mockOrders, mockCustomers } = require('../utils/mockData');
 class AIService {
   constructor() {
     this.genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
-    this.model = this.genAI ? this.genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-pro' }) : null;
+    this.model = this.genAI ? this.genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-1.5-flash' }) : null;
     
     this.systemPrompt = `You are a helpful AI customer support agent for an e-commerce platform. Your name is Riley and you specialize in helping customers with their orders.
 

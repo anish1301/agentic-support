@@ -4,6 +4,7 @@ export default {
     "./index.html",
     "./src/**/*.{vue,js,ts,jsx,tsx}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -38,6 +39,52 @@ export default {
       animation: {
         'bounce-slow': 'bounce 2s infinite',
         'pulse-fast': 'pulse 1s infinite',
+        'fade-in': 'fadeIn 0.3s ease-out',
+        'fade-in-up': 'fadeInUp 0.5s ease-out',
+        'slide-in-right': 'slideInRight 0.3s ease-out',
+        'bounce-gentle': 'bounce 1s ease-in-out',
+        'pulse-glow': 'pulse-glow 2s infinite',
+        'shimmer': 'shimmer 1.5s infinite linear',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        fadeInUp: {
+          '0%': {
+            opacity: '0',
+            transform: 'translateY(20px)',
+          },
+          '100%': {
+            opacity: '1',
+            transform: 'translateY(0)',
+          },
+        },
+        slideInRight: {
+          '0%': {
+            transform: 'translateX(100%)',
+          },
+          '100%': {
+            transform: 'translateX(0)',
+          },
+        },
+        shimmer: {
+          '0%': { backgroundPosition: '-200px 0' },
+          '100%': { backgroundPosition: 'calc(200px + 100%) 0' },
+        },
+        'pulse-glow': {
+          '0%, 100%': {
+            boxShadow: '0 0 5px rgba(59, 130, 246, 0.5)',
+          },
+          '50%': {
+            boxShadow: '0 0 20px rgba(59, 130, 246, 0.8)',
+          },
+        },
+      },
+      transitionProperty: {
+        'height': 'height',
+        'spacing': 'margin, padding',
       }
     },
   },

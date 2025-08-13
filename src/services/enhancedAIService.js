@@ -55,16 +55,25 @@ class EnhancedAIService {
   /**
    * Process user message with full context awareness
    * @param {string} message - User message
-   * @param {string} customerId - Customer identifier
+   * @param {string} customerId - Customer identifier (defaults to primary user for single-user panel)
    * @param {string} sessionId - Session identifier
+   * @param {array} userOrders - Current user's orders for context
    * @returns {object} Complete response with actions and context
    */
-  async processMessage(message, customerId, sessionId) {
+  async processMessage(message, customerId = null, sessionId, userOrders = []) {
     try {
-      // Get conversation context
+      // For single-user panel, always use the primary user
+      const userId = customerId || this.contextMemory.primaryUser.id
+      
+      // Update user context with latest orders
+      if (userOrders.length > 0) {
+        this.contextMemory.updateUserOrders(userOrders)
+      }
+      
+      // Get enhanced conversation context with user-specific data
       const conversationContext = this.contextMemory.getAnalysisContext(sessionId)
       
-      // Analyze message with full context
+      // Analyze message with full user context
       const analysis = await this.intentClassifier.analyzeMessage(message, conversationContext)
       
       // Create message object
@@ -72,7 +81,7 @@ class EnhancedAIService {
         content: message,
         type: 'user',
         sender: 'customer',
-        customerId
+        customerId: userId
       }
       
       // Update context with new message and analysis
@@ -87,9 +96,9 @@ class EnhancedAIService {
       
       // Handle the message based on complexity
       if (analysis.isComplex) {
-        return await this.handleMultiIntentMessage(sessionId, analysis, customerId)
+        return await this.handleMultiIntentMessage(sessionId, analysis, userId)
       } else {
-        return await this.handleSingleIntentMessage(sessionId, analysis, customerId)
+        return await this.handleSingleIntentMessage(sessionId, analysis, userId)
       }
       
     } catch (error) {
@@ -250,93 +259,292 @@ class EnhancedAIService {
   }
 
   /**
-   * Handle cancel order requests
+   * Handle cancel order requests with enhanced product name matching
    */
   async handleCancelOrder(sessionId, entities, customerId) {
-    if (!entities.orderIds.length) {
-      return {
-        message: "I'd be happy to help you cancel an order. Could you please provide the order number?",
-        success: false,
-        needsOrderId: true
+    const userContext = this.contextMemory.getUserContext(sessionId)
+    
+    // Check if we have direct order ID
+    if (entities.orderIds.length > 0) {
+      const orderId = entities.orderIds[0]
+      const userOrder = userContext.activeOrders.find(order => order.id === orderId)
+      
+      if (!userOrder) {
+        return {
+          message: `I couldn't find order ${orderId} in your account. Let me show you your current orders that can be cancelled:\n\n${this.formatOrderList(userContext.activeOrders.filter(o => o.canCancel))}`,
+          success: false,
+          needsOrderSelection: true,
+          availableOrders: userContext.activeOrders.filter(o => o.canCancel)
+        }
       }
-    }
-
-    // For POC, we'll simulate order cancellation
-    const orderId = entities.orderIds[0]
-    const mockSuccess = Math.random() > 0.2 // 80% success rate
-
-    if (mockSuccess) {
+      
+      if (!userOrder.canCancel) {
+        return {
+          message: `I'm sorry, but order ${orderId} cannot be cancelled as it's already in ${userOrder.status} status. You may be able to return it after delivery instead.`,
+          success: false,
+          alternativeAction: 'return'
+        }
+      }
+      
       return {
-        message: `✅ Perfect! I've successfully cancelled order ${orderId} for you. You'll receive a confirmation email shortly with the cancellation details. Is there anything else I can help you with?`,
+        message: `✅ Perfect! I've successfully cancelled order ${orderId} (${userOrder.items.map(item => item.name).join(', ')}) for you. You'll receive a confirmation email shortly. Is there anything else I can help you with?`,
         success: true,
         orderId,
+        cancelledItems: userOrder.items,
         actions: ['CANCEL_ORDER']
       }
-    } else {
-      return {
-        message: `I apologize, but I'm unable to cancel order ${orderId}. This could be because the order is already being processed or shipped. Would you like me to connect you with our support team for further assistance?`,
-        success: false,
-        orderId,
-        recommendEscalation: true
+    }
+    
+    // Check if we have product name matches
+    if (entities.matchedOrders.length > 0) {
+      const matchedOrder = entities.matchedOrders[0]
+      const userOrder = userContext.activeOrders.find(order => order.id === matchedOrder.orderId)
+      
+      if (!userOrder || !userOrder.canCancel) {
+        return {
+          message: `I found your ${matchedOrder.matchedProduct} order, but it cannot be cancelled at this time. It's currently in ${userOrder?.status || 'unknown'} status.`,
+          success: false,
+          foundOrder: userOrder
+        }
       }
+      
+      return {
+        message: `✅ Found your ${matchedOrder.matchedProduct} order! I've successfully cancelled order ${userOrder.id} for you. You'll receive a confirmation email shortly with the cancellation details. Is there anything else I can help you with?`,
+        success: true,
+        orderId: userOrder.id,
+        matchedProduct: matchedOrder.matchedProduct,
+        cancelledItems: userOrder.items,
+        actions: ['CANCEL_ORDER']
+      }
+    }
+    
+    // No specific order found - show available orders
+    const cancellableOrders = userContext.activeOrders.filter(order => order.canCancel)
+    
+    if (cancellableOrders.length === 0) {
+      return {
+        message: "You don't currently have any orders that can be cancelled. All your recent orders are either already shipped or delivered. Would you like to check if any can be returned instead?",
+        success: false,
+        alternativeAction: 'return'
+      }
+    }
+    
+    if (cancellableOrders.length === 1) {
+      const order = cancellableOrders[0]
+      return {
+        message: `I found one order that can be cancelled:\n\n**Order ${order.id}**\n${order.items.map(item => `• ${item.name}`).join('\n')}\nTotal: $${order.total}\n\nWould you like me to cancel this order?`,
+        success: false,
+        needsConfirmation: true,
+        suggestedOrder: order
+      }
+    }
+    
+    return {
+      message: `I'd be happy to help you cancel an order! Here are your orders that can be cancelled:\n\n${this.formatOrderList(cancellableOrders)}\n\nWhich order would you like to cancel? You can tell me the order number or just mention the product name.`,
+      success: false,
+      needsOrderSelection: true,
+      availableOrders: cancellableOrders
     }
   }
 
   /**
-   * Handle track order requests
+   * Handle track order requests with enhanced product name matching
    */
   async handleTrackOrder(sessionId, entities, customerId) {
-    if (!entities.orderIds.length) {
+    const userContext = this.contextMemory.getUserContext(sessionId)
+    
+    // Check if we have direct order ID
+    if (entities.orderIds.length > 0) {
+      const orderId = entities.orderIds[0]
+      const userOrder = [...userContext.activeOrders, ...userContext.orderHistory]
+        .find(order => order.id === orderId)
+      
+      if (!userOrder) {
+        return {
+          message: `I couldn't find order ${orderId} in your account. Let me show you your trackable orders:\n\n${this.formatOrderList(userContext.activeOrders)}`,
+          success: false,
+          availableOrders: userContext.activeOrders
+        }
+      }
+      
+      const trackingInfo = this.generateTrackingInfoFromOrder(userOrder)
+      
       return {
-        message: "I can help you track your order! Please provide the order number you'd like to track.",
-        success: false,
-        needsOrderId: true
+        message: `📦 Here's the latest tracking information for your ${userOrder.items.map(item => item.name).join(', ')} order:\n\n` +
+                 `**Order:** ${orderId}\n` +
+                 `**Status:** ${trackingInfo.status}\n` +
+                 `**Tracking Number:** ${trackingInfo.trackingNumber}\n` +
+                 `**Estimated Delivery:** ${trackingInfo.estimatedDelivery}\n` +
+                 `**Last Update:** ${trackingInfo.lastUpdate}\n\n` +
+                 `${trackingInfo.statusMessage}\n\n` +
+                 `Is there anything else you'd like to know about this order?`,
+        success: true,
+        orderId,
+        trackingInfo,
+        actions: ['TRACK_ORDER']
       }
     }
-
-    const orderId = entities.orderIds[0]
     
-    // Mock tracking information
-    const trackingInfo = this.generateMockTrackingInfo(orderId)
+    // Check if we have product name matches
+    if (entities.matchedOrders.length > 0) {
+      const matchedOrder = entities.matchedOrders[0]
+      const userOrder = [...userContext.activeOrders, ...userContext.orderHistory]
+        .find(order => order.id === matchedOrder.orderId)
+      
+      if (userOrder) {
+        const trackingInfo = this.generateTrackingInfoFromOrder(userOrder)
+        
+        return {
+          message: `📦 Found your ${matchedOrder.matchedProduct} order! Here's the tracking info:\n\n` +
+                   `**Order:** ${userOrder.id}\n` +
+                   `**Status:** ${trackingInfo.status}\n` +
+                   `**Tracking Number:** ${trackingInfo.trackingNumber}\n` +
+                   `**Estimated Delivery:** ${trackingInfo.estimatedDelivery}\n\n` +
+                   `${trackingInfo.statusMessage}`,
+          success: true,
+          orderId: userOrder.id,
+          matchedProduct: matchedOrder.matchedProduct,
+          trackingInfo,
+          actions: ['TRACK_ORDER']
+        }
+      }
+    }
+    
+    // No specific order found - show trackable orders
+    const trackableOrders = userContext.activeOrders
+    
+    if (trackableOrders.length === 0) {
+      return {
+        message: "You don't have any active orders to track right now. All your recent orders have been delivered. Would you like to check your order history?",
+        success: false,
+        alternativeAction: 'order_history'
+      }
+    }
+    
+    if (trackableOrders.length === 1) {
+      const order = trackableOrders[0]
+      const trackingInfo = this.generateTrackingInfoFromOrder(order)
+      
+      return {
+        message: `📦 I found your current order! Here's the tracking information:\n\n` +
+                 `**Order:** ${order.id}\n` +
+                 `**Items:** ${order.items.map(item => item.name).join(', ')}\n` +
+                 `**Status:** ${trackingInfo.status}\n` +
+                 `**Tracking Number:** ${trackingInfo.trackingNumber}\n` +
+                 `**Estimated Delivery:** ${trackingInfo.estimatedDelivery}\n\n` +
+                 `${trackingInfo.statusMessage}`,
+        success: true,
+        orderId: order.id,
+        trackingInfo,
+        actions: ['TRACK_ORDER']
+      }
+    }
     
     return {
-      message: `📦 Here's the latest tracking information for order ${orderId}:\n\n` +
-               `**Status:** ${trackingInfo.status}\n` +
-               `**Tracking Number:** ${trackingInfo.trackingNumber}\n` +
-               `**Estimated Delivery:** ${trackingInfo.estimatedDelivery}\n` +
-               `**Last Update:** ${trackingInfo.lastUpdate}\n\n` +
-               `${trackingInfo.statusMessage}\n\n` +
-               `Is there anything else you'd like to know about this order?`,
-      success: true,
-      orderId,
-      trackingInfo,
-      actions: ['TRACK_ORDER']
+      message: `I can help you track your orders! Here are your active orders:\n\n${this.formatOrderList(trackableOrders)}\n\nWhich order would you like to track? You can tell me the order number or mention the product name.`,
+      success: false,
+      needsOrderSelection: true,
+      availableOrders: trackableOrders
     }
   }
 
   /**
-   * Handle return order requests
+   * Handle return order requests with enhanced product name matching
    */
   async handleReturnOrder(sessionId, entities, customerId) {
-    if (!entities.orderIds.length) {
+    const userContext = this.contextMemory.getUserContext(sessionId)
+    
+    // Check if we have direct order ID
+    if (entities.orderIds.length > 0) {
+      const orderId = entities.orderIds[0]
+      const userOrder = [...userContext.activeOrders, ...userContext.orderHistory]
+        .find(order => order.id === orderId)
+      
+      if (!userOrder) {
+        return {
+          message: `I couldn't find order ${orderId} in your account. Let me show you orders that are eligible for return:\n\n${this.formatReturnableOrders(userContext)}`,
+          success: false,
+          availableOrders: this.getReturnableOrders(userContext)
+        }
+      }
+      
+      if (!userOrder.canReturn && userOrder.status !== 'delivered') {
+        return {
+          message: `Order ${orderId} is not eligible for return yet. Orders can only be returned after delivery. Current status: ${userOrder.status}`,
+          success: false,
+          currentStatus: userOrder.status
+        }
+      }
+      
       return {
-        message: "I can help you with a return! Please provide the order number for the items you'd like to return.",
-        success: false,
-        needsOrderId: true
+        message: `🔄 Great! I can help you return your ${userOrder.items.map(item => item.name).join(', ')} from order ${orderId}.\n\n` +
+                 `✅ This order is eligible for return. I've initiated the return process and you'll receive an email with return instructions and a prepaid shipping label within the next few minutes.\n\n` +
+                 `**Return Details:**\n` +
+                 `• Return window: 30 days from delivery\n` +
+                 `• Refund processing time: 3-5 business days after we receive the items\n` +
+                 `• Original payment method will be refunded\n\n` +
+                 `Is there a specific reason for the return that might help us improve?`,
+        success: true,
+        orderId,
+        returnedItems: userOrder.items,
+        actions: ['INITIATE_RETURN']
       }
     }
-
-    const orderId = entities.orderIds[0]
+    
+    // Check if we have product name matches
+    if (entities.matchedOrders.length > 0) {
+      const matchedOrder = entities.matchedOrders[0]
+      const userOrder = [...userContext.activeOrders, ...userContext.orderHistory]
+        .find(order => order.id === matchedOrder.orderId)
+      
+      if (userOrder && (userOrder.canReturn || userOrder.status === 'delivered')) {
+        return {
+          message: `🔄 Found your ${matchedOrder.matchedProduct} order! I've initiated the return process for order ${userOrder.id}.\n\n` +
+                   `You'll receive an email with return instructions and a prepaid shipping label within the next few minutes.\n\n` +
+                   `**Return Details:**\n` +
+                   `• Return window: 30 days from delivery\n` +
+                   `• Refund processing time: 3-5 business days\n\n` +
+                   `Is there anything specific about the ${matchedOrder.matchedProduct} that prompted the return?`,
+          success: true,
+          orderId: userOrder.id,
+          matchedProduct: matchedOrder.matchedProduct,
+          actions: ['INITIATE_RETURN']
+        }
+      } else if (userOrder) {
+        return {
+          message: `I found your ${matchedOrder.matchedProduct} order, but it's not eligible for return yet. Current status: ${userOrder.status}. Orders can only be returned after delivery.`,
+          success: false,
+          foundOrder: userOrder
+        }
+      }
+    }
+    
+    // No specific order found - show returnable orders
+    const returnableOrders = this.getReturnableOrders(userContext)
+    
+    if (returnableOrders.length === 0) {
+      return {
+        message: "You don't currently have any orders that are eligible for return. Orders can only be returned within 30 days of delivery. Would you like to check your recent orders?",
+        success: false,
+        alternativeAction: 'order_history'
+      }
+    }
+    
+    if (returnableOrders.length === 1) {
+      const order = returnableOrders[0]
+      return {
+        message: `I found one order eligible for return:\n\n**Order ${order.id}** (${order.status})\n${order.items.map(item => `• ${item.name}`).join('\n')}\n\nWould you like to start the return process for this order?`,
+        success: false,
+        needsConfirmation: true,
+        suggestedOrder: order
+      }
+    }
     
     return {
-      message: `🔄 I can help you start a return for order ${orderId}. Let me check the return eligibility...\n\n` +
-               `✅ Good news! This order is eligible for return. I've initiated the return process and you'll receive an email with return instructions and a prepaid shipping label within the next few minutes.\n\n` +
-               `Return window: 30 days from delivery\n` +
-               `Refund processing time: 3-5 business days after we receive the items\n\n` +
-               `Is there anything specific about the return you'd like to know?`,
-      success: true,
-      orderId,
-      actions: ['INITIATE_RETURN']
+      message: `I can help you with a return! Here are your orders eligible for return:\n\n${this.formatReturnableOrders(userContext)}\n\nWhich order would you like to return? You can tell me the order number or mention the product name.`,
+      success: false,
+      needsOrderSelection: true,
+      availableOrders: returnableOrders
     }
   }
 
@@ -418,21 +626,51 @@ class EnhancedAIService {
   }
 
   /**
-   * Generate mock tracking information
+   * Generate tracking information from order data
    */
-  generateMockTrackingInfo(orderId) {
-    const statuses = ['Processing', 'Shipped', 'In Transit', 'Out for Delivery', 'Delivered']
-    const randomStatus = statuses[Math.floor(Math.random() * statuses.length)]
-    
-    return {
-      status: randomStatus,
-      trackingNumber: `1Z999AA${Math.random().toString().slice(2, 8)}`,
-      estimatedDelivery: new Date(Date.now() + Math.random() * 7 * 24 * 60 * 60 * 1000).toDateString(),
-      lastUpdate: new Date().toLocaleString(),
-      statusMessage: randomStatus === 'Delivered' ? 
-        '📦 Your package has been delivered!' :
-        '🚚 Your package is on its way and will be delivered soon!'
+  generateTrackingInfoFromOrder(order) {
+    const statusMessages = {
+      'confirmed': '📋 Your order has been confirmed and is being prepared',
+      'processing': '⚡ Your order is being processed and will ship soon',
+      'shipped': '🚚 Your order has been shipped and is on its way',
+      'in_transit': '📦 Your package is in transit',
+      'delivered': '✅ Your order has been delivered'
     }
+
+    return {
+      status: order.status.charAt(0).toUpperCase() + order.status.slice(1).replace('_', ' '),
+      trackingNumber: order.trackingNumber || 'TBD',
+      estimatedDelivery: order.estimatedDelivery || 'TBD',
+      lastUpdate: new Date().toLocaleString(),
+      statusMessage: statusMessages[order.status] || 'Your order is being processed'
+    }
+  }
+
+  /**
+   * Format order list for display
+   */
+  formatOrderList(orders) {
+    return orders.map(order => 
+      `**${order.id}** - ${order.items.map(item => item.name).join(', ')} ($${order.total}) - ${order.status}`
+    ).join('\n')
+  }
+
+  /**
+   * Get returnable orders from user context
+   */
+  getReturnableOrders(userContext) {
+    return [...userContext.activeOrders, ...userContext.orderHistory]
+      .filter(order => order.canReturn || order.status === 'delivered')
+  }
+
+  /**
+   * Format returnable orders for display
+   */
+  formatReturnableOrders(userContext) {
+    const returnableOrders = this.getReturnableOrders(userContext)
+    return returnableOrders.map(order => 
+      `**${order.id}** - ${order.items.map(item => item.name).join(', ')} ($${order.total}) - ${order.status}${order.canReturn ? ' ✅' : ''}`
+    ).join('\n')
   }
 
   /**

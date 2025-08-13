@@ -125,4 +125,82 @@ router.post('/:orderId/return', (req, res) => {
   }
 });
 
+// POST /api/orders/:id/undo-cancel - Undo order cancellation
+router.post('/:orderId/undo-cancel', (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = mockOrders.find(o => o.id === orderId);
+    
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    
+    if (order.status !== 'cancelled') {
+      return res.status(400).json({ 
+        error: 'Can only undo cancellation for cancelled orders' 
+      });
+    }
+    
+    // Restore to confirmed status
+    order.status = 'confirmed';
+    order.canCancel = true;
+    order.canReturn = false;
+    order.updatedAt = new Date().toISOString();
+    
+    // Remove cancellation fields if they exist
+    delete order.cancellationReason;
+    delete order.cancelledAt;
+    
+    res.json({ 
+      success: true,
+      message: 'Order cancellation undone successfully', 
+      data: order 
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to undo order cancellation',
+      message: error.message
+    });
+  }
+});
+
+// POST /api/orders/:id/undo-return - Undo return request
+router.post('/:orderId/undo-return', (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = mockOrders.find(o => o.id === orderId);
+    
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    
+    if (order.status !== 'return_requested') {
+      return res.status(400).json({ 
+        error: 'Can only undo return request for orders with return requested' 
+      });
+    }
+    
+    // Restore to delivered status
+    order.status = 'delivered';
+    order.canCancel = false;
+    order.canReturn = true;
+    order.updatedAt = new Date().toISOString();
+    
+    // Remove return fields if they exist
+    delete order.returnReason;
+    delete order.returnDate;
+    
+    res.json({ 
+      success: true,
+      message: 'Return request undone successfully', 
+      data: order 
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to undo return request',
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;

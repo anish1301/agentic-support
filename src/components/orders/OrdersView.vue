@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 theme-transition">
     <!-- Header -->
     <div class="p-6 border-b border-gray-200">
       <div class="flex items-center justify-between">
@@ -21,7 +21,7 @@
             'px-3 py-2 rounded-lg text-sm font-medium transition-colors',
             selectedStatus === status.value
               ? 'bg-primary-600 text-white'
-              : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+            : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 theme-transition'
           ]"
         >
           {{ status.label }} ({{ getOrderCountByStatus(status.value) }})

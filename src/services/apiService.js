@@ -31,10 +31,10 @@ class ApiService {
   }
 
   // Chat endpoints
-  async sendMessage(message, sessionId) {
+  async sendMessage(message, sessionId, userOrders = []) {
     return this.request('/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, sessionId }),
+      body: JSON.stringify({ message, sessionId, userOrders }),
     });
   }
 

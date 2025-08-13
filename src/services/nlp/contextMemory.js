@@ -7,11 +7,19 @@ class ContextMemoryService {
     this.conversationContexts = new Map()
     this.userPreferences = new Map()
     this.sessionMemory = new Map()
+    this.userContexts = new Map() // User-specific context storage
     
     // Configuration
     this.maxContextHistory = 20
     this.contextTTL = 1800000 // 30 minutes
     this.persistenceDelay = 5000 // 5 seconds delay for DB writes
+    
+    // Single user panel configuration (for POC)
+    this.primaryUser = {
+      id: 'CUST-001',
+      name: 'Sarah Johnson',
+      email: 'sarah.johnson@email.com'
+    }
     
     // Cleanup interval
     this.cleanupInterval = setInterval(() => {
@@ -136,14 +144,199 @@ class ContextMemoryService {
   }
 
   /**
-   * Get context for intent processing
+   * Get user-specific context (for single-user panel)
    * @param {string} sessionId - Session identifier
-   * @returns {object} Relevant context for NLP
+   * @returns {object} User context with orders and preferences
+   */
+  getUserContext(sessionId) {
+    const userId = this.primaryUser.id
+    
+    if (!this.userContexts.has(userId)) {
+      this.userContexts.set(userId, {
+        userId,
+        userName: this.primaryUser.name,
+        userEmail: this.primaryUser.email,
+        activeOrders: [],
+        orderHistory: [],
+        preferences: {
+          communicationStyle: 'friendly',
+          preferredProducts: [],
+          frequentActions: []
+        },
+        personalizedIntents: new Map(), // Track user-specific intent patterns
+        productNameMappings: new Map(), // Map product names to order IDs
+        lastOrdersUpdate: null,
+        pendingIntent: null, // Track when we're waiting for clarification
+        pendingContext: null, // Additional context for pending intent
+        lastBotResponse: null // Track what the bot last asked for
+      })
+    }
+    
+    return this.userContexts.get(userId)
+  }
+
+  /**
+   * Update user's order context with current orders
+   * @param {array} orders - Current user orders
+   */
+  updateUserOrders(orders) {
+    const userId = this.primaryUser.id
+    const userContext = this.getUserContext()
+    
+    // Filter orders for current user
+    const userOrders = orders.filter(order => order.customerId === userId)
+    
+    // Update active orders
+    userContext.activeOrders = userOrders.filter(order => 
+      ['confirmed', 'processing', 'shipped', 'in_transit'].includes(order.status)
+    )
+    
+    // Update order history  
+    userContext.orderHistory = userOrders.filter(order =>
+      ['delivered', 'cancelled', 'returned'].includes(order.status)
+    )
+    
+    // Build product name to order ID mappings for natural language processing
+    userContext.productNameMappings.clear()
+    userOrders.forEach(order => {
+      order.items.forEach(item => {
+        const productName = item.name.toLowerCase()
+        const productVariant = item.variant ? item.variant.toLowerCase() : ''
+        
+        // Map full product name
+        userContext.productNameMappings.set(productName, order.id)
+        
+        // Map product keywords (e.g., "iPhone" from "iPhone 15 Pro")
+        const keywords = productName.split(' ')
+        keywords.forEach(keyword => {
+          if (keyword.length > 2) { // Ignore short words
+            userContext.productNameMappings.set(keyword, order.id)
+          }
+        })
+        
+        // Map variant information
+        if (productVariant) {
+          userContext.productNameMappings.set(`${productName} ${productVariant}`, order.id)
+        }
+      })
+    })
+    
+    userContext.lastOrdersUpdate = Date.now()
+  }
+
+  /**
+   * Find orders by product name or keywords
+   * @param {string} productQuery - Product name or keywords
+   * @returns {array} Matching orders
+   */
+  findOrdersByProduct(productQuery) {
+    const userContext = this.getUserContext()
+    const query = productQuery.toLowerCase().trim()
+    const matchingOrderIds = new Set()
+    
+    // Direct mapping lookup
+    if (userContext.productNameMappings.has(query)) {
+      matchingOrderIds.add(userContext.productNameMappings.get(query))
+    }
+    
+    // Partial matching for complex queries
+    for (const [productName, orderId] of userContext.productNameMappings) {
+      if (productName.includes(query) || query.includes(productName)) {
+        matchingOrderIds.add(orderId)
+      }
+    }
+    
+    // Find the actual order objects
+    const allUserOrders = [...userContext.activeOrders, ...userContext.orderHistory]
+    return allUserOrders.filter(order => matchingOrderIds.has(order.id))
+  }
+
+  /**
+   * Get user's actionable orders by intent type
+   * @param {string} intentType - Type of action (cancel, track, return)
+   * @returns {array} Orders that can have the action performed
+   */
+  getActionableOrders(intentType) {
+    const userContext = this.getUserContext()
+    
+    switch (intentType.toLowerCase()) {
+      case 'cancel':
+        return userContext.activeOrders.filter(order => order.canCancel)
+      
+      case 'track':
+        return userContext.activeOrders.filter(order => 
+          ['confirmed', 'processing', 'shipped', 'in_transit'].includes(order.status)
+        )
+      
+      case 'return':
+        return [...userContext.activeOrders, ...userContext.orderHistory]
+          .filter(order => order.canReturn || order.status === 'delivered')
+      
+      default:
+        return [...userContext.activeOrders, ...userContext.orderHistory]
+    }
+  }
+
+  /**
+   * Set a pending intent when waiting for user clarification
+   * @param {string} sessionId - Session identifier  
+   * @param {string} intent - The pending intent (e.g., 'TRACK_ORDER')
+   * @param {object} context - Additional context
+   */
+  setPendingIntent(sessionId, intent, context = {}) {
+    const userContext = this.getUserContext(sessionId)
+    userContext.pendingIntent = intent
+    userContext.pendingContext = context
+    userContext.lastBotResponse = context.botMessage || null
+  }
+
+  /**
+   * Get and clear pending intent
+   * @param {string} sessionId - Session identifier
+   * @returns {object} Pending intent and context
+   */
+  getPendingIntent(sessionId) {
+    const userContext = this.getUserContext(sessionId)
+    const pending = {
+      intent: userContext.pendingIntent,
+      context: userContext.pendingContext,
+      lastBotResponse: userContext.lastBotResponse
+    }
+    
+    // Clear after retrieving
+    userContext.pendingIntent = null
+    userContext.pendingContext = null
+    userContext.lastBotResponse = null
+    
+    return pending
+  }
+
+  /**
+   * Check if there's a pending intent
+   * @param {string} sessionId - Session identifier
+   * @returns {boolean}
+   */
+  hasPendingIntent(sessionId) {
+    const userContext = this.getUserContext(sessionId)
+    return userContext.pendingIntent !== null
+  }
+
+  /**
+   * Enhanced context for personalized intent processing
+   * @param {string} sessionId - Session identifier
+   * @returns {object} Enhanced context with user-specific data
    */
   getAnalysisContext(sessionId) {
     const context = this.getContext(sessionId)
+    const userContext = this.getUserContext(sessionId)
+    const pending = {
+      intent: userContext.pendingIntent,
+      context: userContext.pendingContext,
+      lastBotResponse: userContext.lastBotResponse
+    }
     
     return {
+      // Original context
       recentIntents: context.intents.slice(-3).map(i => i.intent),
       knownOrderIds: Array.from(context.entities.orderIds),
       customerSentiment: context.customerState.sentiment,
@@ -151,7 +344,32 @@ class ContextMemoryService {
       failedAttempts: context.failedAttempts,
       conversationLength: context.messages.length,
       lastActivity: context.lastActivity,
-      isNewCustomer: context.messages.length <= 1
+      isNewCustomer: context.messages.length <= 1,
+      
+      // Enhanced user-specific context
+      user: {
+        id: userContext.userId,
+        name: userContext.userName,
+        email: userContext.userEmail
+      },
+      userOrders: {
+        active: userContext.activeOrders.map(order => ({
+          id: order.id,
+          status: order.status,
+          items: order.items.map(item => ({
+            name: item.name,
+            variant: item.variant
+          })),
+          canCancel: order.canCancel,
+          canReturn: order.canReturn
+        })),
+        total: userContext.activeOrders.length + userContext.orderHistory.length
+      },
+      productMappings: Object.fromEntries(userContext.productNameMappings),
+      userPreferences: userContext.preferences,
+      
+      // Pending intent context for follow-up conversations
+      pendingIntent: pending
     }
   }
 

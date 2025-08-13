@@ -34,6 +34,9 @@ app.use('/api/chat', require('./src/routes/chat'));
 app.use('/api/orders', require('./src/routes/orders'));
 app.use('/api/agent', require('./src/routes/agent'));
 
+// MongoDB Chat Routes (new)
+app.use('/api/chat', require('./src/routes/mongoChat'));
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);

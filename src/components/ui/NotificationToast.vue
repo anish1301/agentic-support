@@ -9,27 +9,27 @@
         v-for="notification in notifications"
         :key="notification.id"
         :class="[
-          'max-w-sm w-full bg-white shadow-lg rounded-lg pointer-events-auto ring-1 ring-black ring-opacity-5 overflow-hidden',
+          'min-w-96 max-w-2xl w-auto bg-white dark:bg-gray-800 shadow-lg rounded-full pointer-events-auto ring-1 ring-black ring-opacity-5 overflow-hidden theme-transition',
           notificationClasses[notification.type] || notificationClasses.info
         ]"
       >
-        <div class="p-4">
-          <div class="flex items-start">
-            <div class="flex-shrink-0">
-              <component :is="getIcon(notification.type)" class="h-5 w-5" />
-            </div>
-            <div class="ml-3 w-0 flex-1 pt-0.5">
-              <p class="text-sm font-medium text-gray-900">
+        <div class="px-6 py-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="flex-shrink-0">
+                <component :is="getIcon(notification.type)" class="h-5 w-5" />
+              </div>
+              <p class="text-sm font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">
                 {{ notification.message }}
               </p>
             </div>
-            <div class="ml-4 flex-shrink-0 flex">
+            <div class="flex-shrink-0 ml-4">
               <button
                 @click="removeNotification(notification.id)"
-                class="bg-white rounded-md inline-flex text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                class="bg-white dark:bg-gray-700 rounded-full inline-flex text-gray-400 dark:text-gray-300 hover:text-gray-500 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 theme-transition p-1"
               >
                 <span class="sr-only">Close</span>
-                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
               </button>
@@ -54,10 +54,10 @@ export default {
   data() {
     return {
       notificationClasses: {
-        success: 'border-l-4 border-green-400',
-        error: 'border-l-4 border-red-400',
-        warning: 'border-l-4 border-yellow-400',
-        info: 'border-l-4 border-blue-400'
+        success: 'ring-green-400/30 bg-green-50/50 dark:bg-green-900/20',
+        error: 'ring-red-400/30 bg-red-50/50 dark:bg-red-900/20',
+        warning: 'ring-yellow-400/30 bg-yellow-50/50 dark:bg-yellow-900/20',
+        info: 'ring-blue-400/30 bg-blue-50/50 dark:bg-blue-900/20'
       }
     }
   },

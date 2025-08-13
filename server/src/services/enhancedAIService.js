@@ -351,7 +351,7 @@ class EnhancedAIService {
     if (process.env.GEMINI_API_KEY) {
       try {
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-        this.model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+        this.model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
         console.log('[EnhancedAI] Gemini API initialized')
       } catch (error) {
         console.log('[EnhancedAI] Gemini API failed to initialize:', error.message)

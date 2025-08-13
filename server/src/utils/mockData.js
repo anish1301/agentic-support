@@ -26,8 +26,9 @@ const mockOrders = [
       { 
         id: 'PROD-001',
         name: 'iPhone 15 Pro',
+        variant: '256GB',
         sku: 'IPH15PRO-256-BLU',
-        quantity: 1,
+        qty: 1,
         price: 1099,
         image: 'https://via.placeholder.com/100/007bff/ffffff?text=iPhone'
       }
@@ -53,9 +54,10 @@ const mockOrders = [
     items: [
       {
         id: 'PROD-002',
-        name: 'MacBook Pro 14"',
+        name: 'MacBook Pro 14',
+        variant: 'M3 Pro, 512GB',
         sku: 'MBP14-M3-512-SLV',
-        quantity: 1,
+        qty: 1,
         price: 1999,
         image: 'https://via.placeholder.com/100/28a745/ffffff?text=MacBook'
       }
@@ -81,9 +83,10 @@ const mockOrders = [
     items: [
       {
         id: 'PROD-003',
-        name: 'AirPods Pro',
+        name: 'AirPods Pro 2nd Gen',
+        variant: 'White',
         sku: 'APP-2ND-WHT',
-        quantity: 2,
+        qty: 2,
         price: 249,
         image: 'https://via.placeholder.com/100/dc3545/ffffff?text=AirPods'
       }

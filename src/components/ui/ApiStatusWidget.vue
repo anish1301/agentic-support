@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed bottom-4 right-4 bg-white p-4 rounded-lg shadow-lg border">
+  <div class="fixed bottom-4 right-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 theme-transition">
     <h3 class="font-semibold mb-2">API Status</h3>
     <div class="space-y-2 text-sm">
       <div class="flex items-center space-x-2">

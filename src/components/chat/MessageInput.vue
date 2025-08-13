@@ -14,13 +14,13 @@
         
         <!-- Suggested Questions -->
         <div v-if="showSuggestions && suggestedQuestions.length" class="absolute bottom-full left-0 right-0 mb-2">
-          <div class="bg-white border border-gray-200 rounded-lg shadow-lg p-2 space-y-1">
-            <p class="text-xs text-gray-500 px-2 py-1">Suggested questions:</p>
+          <div class="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg p-2 space-y-1 theme-transition">
+            <p class="text-xs text-gray-500 dark:text-gray-400 px-2 py-1">Suggested questions:</p>
             <button
               v-for="suggestion in suggestedQuestions"
               :key="suggestion"
               @click="selectSuggestion(suggestion)"
-              class="w-full text-left px-2 py-1 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
+              class="w-full text-left px-2 py-1 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 rounded transition-colors"
             >
               {{ suggestion }}
             </button>

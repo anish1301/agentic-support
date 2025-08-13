@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-white rounded-lg shadow-sm border border-gray-200 h-[600px] flex flex-col">
+  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 h-[600px] flex flex-col theme-transition">
     <!-- Chat Header -->
     <div class="p-4 border-b border-gray-200">
       <div class="flex items-center justify-between">

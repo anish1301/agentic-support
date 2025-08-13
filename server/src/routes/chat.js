@@ -1,11 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const SmartHybridAIService = require('../services/smartHybridAI');
+const simpleAIService = require('../services/simpleAIService');
 
-// Initialize smart hybrid AI service
-const smartAI = new SmartHybridAIService();
-
-// POST /api/chat - Smart hybrid processing
+// POST /api/chat - Simple AI chat processing with state-based context
 router.post('/', async (req, res) => {
   try {
     const { message, sessionId, customerId = 'CUST-001' } = req.body;
@@ -14,41 +11,29 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Message is required' });
     }
     
-    // Use smart hybrid AI service
-    const currentSessionId = sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const aiResponse = await smartAI.processMessage(message, customerId, currentSessionId);
+    console.log(`[ChatRoute] Processing: "${message}" for customer: ${customerId}, session: ${sessionId}`);
+    
+    // Use simple AI service with state-based context
+    const aiResponse = await simpleAIService.processUserRequest(message, customerId, sessionId);
     
     const response = {
       message: aiResponse.message,
-      sessionId: currentSessionId,
+      sessionId: aiResponse.sessionId,
       timestamp: new Date().toISOString(),
       type: 'agent',
-      intent: aiResponse.intent,
-      orderId: aiResponse.orderId,
       actions: aiResponse.actions || [],
-      success: aiResponse.success !== false,
-      context: {
-        confidence: aiResponse.confidence,
-        source: aiResponse.source,
-        escalateToHuman: aiResponse.escalateToHuman || false
-      }
+      success: true,
+      needsConfirmation: aiResponse.needsConfirmation || false
     };
-    
-    // Handle human escalation
-    if (aiResponse.escalation) {
-      response.escalation = aiResponse.escalation;
-      response.requiresHuman = true;
-    }
     
     res.json(response);
   } catch (error) {
-    console.error('Smart hybrid chat error:', error);
+    console.error('Chat processing error:', error);
     res.status(500).json({ 
       error: 'I encountered an issue processing your request. Please try again.',
-      message: 'Sorry, I had a temporary issue. Let me connect you with a human agent.',
+      message: 'Sorry, I had a temporary issue. How can I help you?',
       type: 'agent',
-      timestamp: new Date().toISOString(),
-      escalateToHuman: true
+      timestamp: new Date().toISOString()
     });
   }
 });
@@ -57,7 +42,6 @@ router.post('/', async (req, res) => {
 router.get('/history/:sessionId', (req, res) => {
   const { sessionId } = req.params;
   
-  // Mock chat history
   const history = [
     {
       id: 1,
@@ -68,45 +52,6 @@ router.get('/history/:sessionId', (req, res) => {
   ];
   
   res.json({ sessionId, history });
-});
-
-// GET /api/chat/stats - Get smart hybrid AI service statistics
-router.get('/stats', (req, res) => {
-  try {
-    const stats = smartAI.getServiceStats();
-    res.json({
-      success: true,
-      stats,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error getting stats:', error);
-    res.status(500).json({
-      error: 'Failed to get service statistics',
-      message: error.message
-    });
-  }
-});
-
-// GET /api/chat/context/:sessionId - Get conversation context  
-router.get('/context/:sessionId', (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    const context = smartAI.getContextMemory(sessionId);
-    
-    res.json({
-      success: true,
-      sessionId,
-      context,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error getting context:', error);
-    res.status(500).json({
-      error: 'Failed to get conversation context',
-      message: error.message
-    });
-  }
 });
 
 module.exports = router;
